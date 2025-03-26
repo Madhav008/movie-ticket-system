@@ -1,0 +1,14 @@
+{
+  "server": {
+    "port": "8080"
+  },
+  "database": {
+    "host": "localhost",
+    "port": "5432",
+    "user": "hari",
+    "password": "hari",
+    "dbname": "movie_ticket",
+    "sslmode": "disable",
+    "timezone": "Asia/Kolkata"
+  }
+}

@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: movie_ticket_db
+    restart: always
+    environment:
+      POSTGRES_USER: hari
+      POSTGRES_PASSWORD: hari
+      POSTGRES_DB: movie_ticket
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - movie_network
+
+volumes:
+  postgres_data:
+
+networks:
+  movie_network:
+    driver: bridge
