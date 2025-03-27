@@ -51,9 +51,6 @@ type CancelTicketRequest struct {
 
 type Attendees struct {
 	Name       string `json:"name"`        // User's name
-	Email      string `json:"email"`       // User's email
-	MovieTitle string `json:"movie_title"` // Title of the movie
-	Showtime   string `json:"showtime"`    // Showtime of the movie
 	SeatNumber string `json:"seat_number"` // Assigned seat number
 }
 

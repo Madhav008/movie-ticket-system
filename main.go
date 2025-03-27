@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"movieTicket/config"
+	"movieTicket/repository"
 	"movieTicket/routes"
+	"movieTicket/services"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,8 +14,8 @@ import (
 
 func main() {
 
-	gin.SetMode(gin.ReleaseMode) 
-	
+	gin.SetMode(gin.ReleaseMode)
+
 	// Load configuration
 	cfg := config.InitConfig()
 	port := cfg.Server.Port
@@ -39,7 +41,10 @@ func main() {
 	router.Use(gin.Recovery())
 
 	// Define a routes group for the API endpoints
-	routes.SetupRoutes(router)
+	repo := repository.NewMovieTicketRepository()
+	var service services.ServiceInterface
+	service = services.NewMovieTicketService(repo)
+	routes.SetupRoutes(router, service)
 
 	// Start the Gin server on port 8080
 	if err := router.Run(":" + port); err != nil {

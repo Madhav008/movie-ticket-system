@@ -1,5 +1,13 @@
 # Movie Ticket Booking System
 
+### Running the application
+
+To run the application, navigate to the project directory and type:
+
+    go test ./... && go run main.go
+
+The application will start and listen on port 8080.
+
 ## Requirements
 
 ### 1. Book Movie Ticket API
@@ -83,10 +91,18 @@ The **Movie Ticket Booking System** provides APIs to book movie tickets, view ti
 **Method:** `GET`  
 **Response:**  
 ```json
-[
-  {"name": "John Doe", "seat_number": "A10"},
-  {"name": "Jane Smith", "seat_number": "A11"}
-]
+{
+    "attendees": [
+        {
+            "name": "John Doe",
+            "seat_number": "A49"
+        },
+        {
+            "name": "Jane Smith",
+            "seat_number": "A18"
+        }
+    ]
+}
 ```
 
 ### 4. **Cancel Movie Ticket**

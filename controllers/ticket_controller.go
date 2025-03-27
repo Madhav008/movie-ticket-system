@@ -9,20 +9,28 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type Controller struct {
+	service services.ServiceInterface
+}
+
+func NewController(service services.ServiceInterface) *Controller {
+	return &Controller{service: service}
+}
+
 // HealthCheck returns a simple success message
-func HealthCheck(c *gin.Context) {
+func (ctrl *Controller) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Server is up and running"})
 }
 
 // BookTicket handles booking a movie ticket
-func BookTicket(c *gin.Context) {
+func (ctrl *Controller) BookTicket(c *gin.Context) {
 	var request models.BookTicketRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	ticket, err := services.BookTicketService(request)
+	ticket, err := ctrl.service.BookTicketService(request)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -32,9 +40,9 @@ func BookTicket(c *gin.Context) {
 }
 
 // ViewTicket retrieves ticket details by email
-func ViewTicket(c *gin.Context) {
+func (ctrl *Controller) ViewTicket(c *gin.Context) {
 	email := c.Query("email")
-	ticket, err := services.ViewTicketService(email)
+	ticket, err := ctrl.service.ViewTicketService(email)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -44,11 +52,11 @@ func ViewTicket(c *gin.Context) {
 }
 
 // ViewAttendees returns a list of attendees for a movie and showtime
-func ViewAttendees(c *gin.Context) {
+func (ctrl *Controller) ViewAttendees(c *gin.Context) {
 	movieTitle := c.Query("movie_title")
 	showtime := c.Query("showtime")
 
-	attendees, err := services.ViewAttendeesService(movieTitle, showtime)
+	attendees, err := ctrl.service.ViewAttendeesService(movieTitle, showtime)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -58,14 +66,14 @@ func ViewAttendees(c *gin.Context) {
 }
 
 // CancelTicket handles ticket cancellation
-func CancelTicket(c *gin.Context) {
+func (ctrl *Controller) CancelTicket(c *gin.Context) {
 	var request models.CancelTicketRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := services.CancelTicketService(request); err != nil {
+	if err := ctrl.service.CancelTicketService(request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -74,14 +82,14 @@ func CancelTicket(c *gin.Context) {
 }
 
 // ModifySeat handles seat modification requests
-func ModifySeat(c *gin.Context) {
+func (ctrl *Controller) ModifySeat(c *gin.Context) {
 	var request models.ModifySeatRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := services.ModifySeatService(request); err != nil {
+	if err := ctrl.service.ModifySeatService(request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

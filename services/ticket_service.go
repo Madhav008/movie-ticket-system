@@ -10,20 +10,38 @@ import (
 	"github.com/google/uuid"
 )
 
-// BookTicketService handles business logic for booking a ticket
-func BookTicketService(request models.BookTicketRequest) (models.TicketConfirmation, error) {
-	// Validate input data
+type ServiceInterface interface {
+	BookTicketService(request models.BookTicketRequest) (models.TicketConfirmation, error)
+	ViewTicketService(email string) ([]models.Ticket, error)
+	ViewAttendeesService(movieTitle, showtime string) ([]models.Attendees, error)
+	CancelTicketService(request models.CancelTicketRequest) error
+	ModifySeatService(request models.ModifySeatRequest) error
+}
+
+type MovieTicketService struct {
+	repo *repository.MovieTicketRepository
+}
+
+type MockMovieTicketService struct{}
+
+func NewMovieTicketService(repo *repository.MovieTicketRepository) *MovieTicketService {
+	return &MovieTicketService{repo: repo}
+}
+
+func NewMockMovieTicketService() *MockMovieTicketService {
+	return &MockMovieTicketService{}
+}
+
+// Real Service Implementation
+func (s *MovieTicketService) BookTicketService(request models.BookTicketRequest) (models.TicketConfirmation, error) {
 	if request.Name == "" || request.Email == "" || request.MovieTitle == "" || request.Showtime == "" {
 		return models.TicketConfirmation{}, errors.New("all fields are required")
 	}
-
-	// Generate ticket ID and seat number
 	ticketID := uuid.New().String()
-	seatNumber := "A" + ticketID[len(ticketID)-2:] // Mock seat allocation logic
+	seatNumber := "A" + ticketID[len(ticketID)-2:]
 
-	// Create a ticket object (replace with DB persistence logic)
 	ticket := models.Ticket{
-		ID:         uint(time.Now().Unix()), // Mock ID, replace with DB-generated ID
+		ID:         uint(time.Now().Unix()),
 		Name:       request.Name,
 		Email:      request.Email,
 		MovieTitle: request.MovieTitle,
@@ -34,7 +52,7 @@ func BookTicketService(request models.BookTicketRequest) (models.TicketConfirmat
 		UpdatedAt:  time.Now(),
 	}
 
-	err := repository.TicketRepo.BookTicket(&ticket)
+	err := s.repo.BookTicket(&ticket)
 	if err != nil {
 		return models.TicketConfirmation{}, err
 	}
@@ -49,61 +67,66 @@ func BookTicketService(request models.BookTicketRequest) (models.TicketConfirmat
 	}, nil
 }
 
-// ViewTicketService retrieves a ticket by email (Mock function)
-func ViewTicketService(email string) ([]models.Ticket, error) {
+func (s *MovieTicketService) ViewTicketService(email string) ([]models.Ticket, error) {
 	if email == "" {
 		return []models.Ticket{}, errors.New("email is required")
 	}
-
-	ticket, err := repository.TicketRepo.GetTicketByEmail(email)
+	ticket, err := s.repo.GetTicketByEmail(email)
 	if err != nil {
 		return []models.Ticket{}, err
 	}
-
 	return ticket, nil
 }
 
-// ViewAttendeesService retrieves all attendees for a movie showtime (Mock function)
-func ViewAttendeesService(movieTitle, showtime string) ([]models.Attendees, error) {
+func (s *MovieTicketService) ViewAttendeesService(movieTitle, showtime string) ([]models.Attendees, error) {
 	if movieTitle == "" || showtime == "" {
 		return nil, errors.New("movie title and showtime are required")
 	}
-
-	// Fetch attendees from repository
-	attendees, err := repository.TicketRepo.GetAttendeesByMovie(movieTitle, showtime)
+	attendees, err := s.repo.GetAttendeesByMovie(movieTitle, showtime)
 	if err != nil {
 		return nil, err
 	}
-
 	return attendees, nil
 }
 
-// CancelTicketService cancels a ticket based on email and showtime
-func CancelTicketService(request models.CancelTicketRequest) error {
+func (s *MovieTicketService) CancelTicketService(request models.CancelTicketRequest) error {
 	if request.Email == "" || request.Showtime == "" {
 		return errors.New("email and showtime are required")
 	}
-
-	// Cancel ticket using repository
-	err := repository.TicketRepo.CancelTicket(request.Email, request.Showtime)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return s.repo.CancelTicket(request.Email, request.Showtime)
 }
 
-// ModifySeatService updates seat assignment
-func ModifySeatService(request models.ModifySeatRequest) error {
+func (s *MovieTicketService) ModifySeatService(request models.ModifySeatRequest) error {
 	if request.Email == "" || request.Showtime == "" || request.NewSeatNumber == "" {
 		return errors.New("email, showtime, and new seat number are required")
 	}
+	return s.repo.ModifySeat(request.Email, request.Showtime, request.NewSeatNumber)
+}
 
-	// Modify seat using repository
-	err := repository.TicketRepo.ModifySeat(request.Email, request.Showtime, request.NewSeatNumber)
-	if err != nil {
-		return err
-	}
+// Mock Service Implementation
+func (m *MockMovieTicketService) BookTicketService(request models.BookTicketRequest) (models.TicketConfirmation, error) {
+	return models.TicketConfirmation{
+		Name:       request.Name,
+		Email:      request.Email,
+		MovieTitle: request.MovieTitle,
+		Showtime:   request.Showtime,
+		SeatNumber: "A1",
+		Status:     "Confirmed",
+	}, nil
+}
 
+func (m *MockMovieTicketService) ViewTicketService(email string) ([]models.Ticket, error) {
+	return []models.Ticket{}, nil
+}
+
+func (m *MockMovieTicketService) ViewAttendeesService(movieTitle, showtime string) ([]models.Attendees, error) {
+	return []models.Attendees{}, nil
+}
+
+func (m *MockMovieTicketService) CancelTicketService(request models.CancelTicketRequest) error {
+	return nil
+}
+
+func (m *MockMovieTicketService) ModifySeatService(request models.ModifySeatRequest) error {
 	return nil
 }

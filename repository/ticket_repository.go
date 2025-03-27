@@ -21,6 +21,11 @@ var (
 	ticketsMutex sync.Mutex
 )
 
+// NewMovieTicketRepository returns a new instance of MovieTicketRepository
+func NewMovieTicketRepository() *MovieTicketRepository {
+	return &MovieTicketRepository{}
+}
+
 // BookTicket saves a new movie ticket to the database or memory
 func (r *MovieTicketRepository) BookTicket(ticket *models.Ticket) error {
 	if config.DBAvailable {
@@ -167,9 +172,6 @@ func (r *MovieTicketRepository) GetAttendeesByMovie(movieTitle, showtime string)
 		if ticket.MovieTitle == movieTitle && ticket.Showtime == showtime {
 			attendees = append(attendees, models.Attendees{
 				Name:       ticket.Name,
-				Email:      ticket.Email,
-				MovieTitle: ticket.MovieTitle,
-				Showtime:   ticket.Showtime,
 				SeatNumber: ticket.SeatNumber,
 			})
 		}
