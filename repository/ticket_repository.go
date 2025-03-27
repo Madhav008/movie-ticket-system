@@ -6,6 +6,7 @@ import (
 	"log"
 	"movieTicket/config"
 	"movieTicket/models"
+	"sync"
 	"time"
 )
 
@@ -14,69 +15,77 @@ type MovieTicketRepository struct{}
 
 var TicketRepo = MovieTicketRepository{}
 
-// BookTicket saves a new movie ticket to the database
+// In-memory fallback storage
+var (
+	tickets      = make(map[string]models.Ticket) // Key: (email + showtime)
+	ticketsMutex sync.Mutex
+)
+
+// BookTicket saves a new movie ticket to the database or memory
 func (r *MovieTicketRepository) BookTicket(ticket *models.Ticket) error {
-	var count int64
-	if err := config.DB.Model(&models.Ticket{}).
-		Where("email = ? AND movie_title = ? AND showtime = ?", ticket.Email, ticket.MovieTitle, ticket.Showtime).
-		Count(&count).Error; err != nil {
-		return err
-	}
+	if config.DBAvailable {
+		// Check if the user already booked for the same movie and showtime
+		var count int64
+		if err := config.DB.Model(&models.Ticket{}).
+			Where("email = ? AND movie_title = ? AND showtime = ?", ticket.Email, ticket.MovieTitle, ticket.Showtime).
+			Count(&count).Error; err != nil {
+			config.DBAvailable = false
+			log.Println("⚠️  Database error, switching to in-memory mode")
+		}
 
-	if count > 0 {
-		return errors.New("email already booked for the same showtime and movie")
-	}
+		if count > 0 {
+			return errors.New("email already booked for the same showtime and movie")
+		}
 
-	// Check if seats exist for this showtime and movie; if not, create them
-	var seatCount int64
-	config.DB.Model(&models.Seat{}).Where("movie_title = ? AND showtime = ?", ticket.MovieTitle, ticket.Showtime).Count(&seatCount)
-	log.Println("---------------------------")
-	log.Println(seatCount)
-	log.Println("---------------------------")
+		// Ensure seats exist
+		var seatCount int64
+		config.DB.Model(&models.Seat{}).Where("movie_title = ? AND showtime = ?", ticket.MovieTitle, ticket.Showtime).Count(&seatCount)
 
-	if seatCount == 0 {
-		// Assuming a fixed number of seats per show (e.g., 50)
-		if err := CreateSeatsForShowtime(ticket.MovieTitle, ticket.Showtime, 50); err != nil {
-			return errors.New("failed to create seats for the new showtime")
+		if seatCount == 0 {
+			if err := CreateSeatsForShowtime(ticket.MovieTitle, ticket.Showtime, 50); err != nil {
+				return errors.New("failed to create seats for the new showtime")
+			}
+		}
+
+		// Get the next available seat
+		seatNumber, err := FindNextAvailableSeat(ticket.MovieTitle, ticket.Showtime)
+		if err != nil {
+			return errors.New("no available seats")
+		}
+
+		// Create ticket entry
+		ticket.SeatNumber = seatNumber
+		ticket.Status = "Confirmed"
+		ticket.CreatedAt = time.Now()
+		ticket.UpdatedAt = time.Now()
+
+		if err := config.DB.Model(&models.Ticket{}).Create(ticket).Error; err != nil {
+			config.DBAvailable = false
+			log.Println("⚠️  Database error, saving ticket in-memory instead")
+		} else {
+			// Mark seat as booked
+			config.DB.Model(&models.Seat{}).Where("seat_number = ? AND showtime = ?", seatNumber, ticket.Showtime).
+				Update("is_booked", true)
+			return nil
 		}
 	}
 
-	// Find next available seat
-	seatNumber, err := FindNextAvailableSeat(ticket.MovieTitle, ticket.Showtime)
-	if err != nil {
-		return errors.New("no available seats")
-	}
-	log.Println("---------------------------")
-	log.Println(seatNumber)
-	log.Println("---------------------------")
+	// In-memory storage fallback
+	ticketsMutex.Lock()
+	defer ticketsMutex.Unlock()
 
-	// Create ticket entry
-	_ticket := models.Ticket{
-		Name:       ticket.Name,
-		Email:      ticket.Email,
-		MovieTitle: ticket.MovieTitle,
-		Showtime:   ticket.Showtime,
-		SeatNumber: seatNumber,
-		Status:     "Confirmed",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+	key := ticket.Email + ticket.Showtime
+	if _, exists := tickets[key]; exists {
+		return errors.New("email already booked for this showtime and movie")
 	}
 
-	log.Println("---------------------------")
-	log.Println(_ticket)
-	log.Println("---------------------------")
-
-	err = config.DB.Model(&models.Ticket{}).Create(&_ticket).Error
-	if err != nil {
-		return err
-	}
-	// Mark seat as booked
-	config.DB.Model(&models.Seat{}).Where("seat_number = ? AND showtime = ?", seatNumber, _ticket.Showtime).
-		Update("is_booked", true)
+	tickets[key] = *ticket
+	log.Println("✅ Ticket booked in-memory due to DB failure")
 
 	return nil
 }
 
+// CreateSeatsForShowtime initializes seats for a new movie showtime
 func CreateSeatsForShowtime(movieTitle, showtime string, totalSeats int) error {
 	log.Printf("Creating %d seats for %s at %s", totalSeats, movieTitle, showtime)
 
@@ -89,9 +98,11 @@ func CreateSeatsForShowtime(movieTitle, showtime string, totalSeats int) error {
 			IsBooked:   false,
 		})
 	}
+
 	return config.DB.Create(&seats).Error
 }
 
+// FindNextAvailableSeat finds the next available seat for a given showtime
 func FindNextAvailableSeat(movieTitle, showtime string) (string, error) {
 	var seat models.Seat
 	err := config.DB.Where("movie_title = ? AND showtime = ? AND is_booked = false", movieTitle, showtime).
@@ -105,49 +116,121 @@ func FindNextAvailableSeat(movieTitle, showtime string) (string, error) {
 
 // GetTicketByEmail retrieves a ticket by email
 func (r *MovieTicketRepository) GetTicketByEmail(email string) ([]models.Ticket, error) {
-	var ticket []models.Ticket
-	err := config.DB.Where("email = ?", email).First(&ticket).Error
-	if err != nil {
-		return nil, err
+	if config.DBAvailable {
+		var tickets []models.Ticket
+		err := config.DB.Where("email = ?", email).Find(&tickets).Error
+		if err == nil {
+			return tickets, nil
+		}
+		config.DBAvailable = false
+		log.Println("⚠️  Database error, switching to in-memory mode")
 	}
-	return ticket, nil
+
+	// In-memory fallback
+	ticketsMutex.Lock()
+	defer ticketsMutex.Unlock()
+
+	var results []models.Ticket
+	for _, ticket := range tickets {
+		if ticket.Email == email {
+			results = append(results, ticket)
+		}
+	}
+
+	if len(results) == 0 {
+		return nil, errors.New("no tickets found")
+	}
+
+	return results, nil
 }
 
 // GetAttendeesByMovie retrieves all attendees for a specific movie and showtime
-func (r *MovieTicketRepository) GetAttendeesByMovie(movieTitle string, showtime string) ([]models.Attendees, error) {
+func (r *MovieTicketRepository) GetAttendeesByMovie(movieTitle, showtime string) ([]models.Attendees, error) {
+	if config.DBAvailable {
+		var attendees []models.Attendees
+		err := config.DB.Model(&models.Ticket{}).
+			Where("movie_title = ? AND showtime = ?", movieTitle, showtime).
+			Find(&attendees).Error
+		if err == nil {
+			return attendees, nil
+		}
+		config.DBAvailable = false
+		log.Println("⚠️  Database error, switching to in-memory mode")
+	}
+
+	// In-memory fallback
+	ticketsMutex.Lock()
+	defer ticketsMutex.Unlock()
+
 	var attendees []models.Attendees
-	// var ticket []models.Ticket
-	// err := config.DB.Where("movie_title = ? AND showtime = ?", movieTitle, showtime).Find(&ticket).Error
-	// if err != nil {
-	// 	return nil, err
-	// }
+	for _, ticket := range tickets {
+		if ticket.MovieTitle == movieTitle && ticket.Showtime == showtime {
+			attendees = append(attendees, models.Attendees{
+				Name:       ticket.Name,
+				Email:      ticket.Email,
+				MovieTitle: ticket.MovieTitle,
+				Showtime:   ticket.Showtime,
+				SeatNumber: ticket.SeatNumber,
+			})
+		}
+	}
 
-	// attendees = make([]models.Attendees, len(ticket))
-	// for i, t := range ticket {
-	// 	attendees[i] = models.Attendees{
-	// 		Name:       t.Name,
-	// 		Email:      t.Email,
-	// 		MovieTitle: t.MovieTitle,
-	// 		Showtime:   t.Showtime,
-	// 		SeatNumber: t.SeatNumber,
-	// 	}
-	// }
-
-	err := config.DB.Model(&models.Ticket{}).Where("movie_title = ? AND showtime = ?", movieTitle, showtime).Find(&attendees).Error
-	if err != nil {
-		return nil, err
+	if len(attendees) == 0 {
+		return nil, errors.New("no attendees found")
 	}
 
 	return attendees, nil
 }
 
 // CancelTicket deletes a ticket by email and showtime
-func (r *MovieTicketRepository) CancelTicket(email string, showtime string) error {
-	return config.DB.Where("email = ? AND showtime = ?", email, showtime).Delete(&models.Ticket{}).Error
+func (r *MovieTicketRepository) CancelTicket(email, showtime string) error {
+	if config.DBAvailable {
+		err := config.DB.Where("email = ? AND showtime = ?", email, showtime).Delete(&models.Ticket{}).Error
+		if err == nil {
+			return nil
+		}
+		config.DBAvailable = false
+		log.Println("⚠️  Database error, switching to in-memory mode")
+	}
+
+	// In-memory fallback
+	ticketsMutex.Lock()
+	defer ticketsMutex.Unlock()
+
+	key := email + showtime
+	if _, exists := tickets[key]; exists {
+		delete(tickets, key)
+		log.Println("✅ Ticket canceled from in-memory storage")
+		return nil
+	}
+
+	return errors.New("ticket not found")
 }
 
 // ModifySeat updates the seat assignment for a ticket
-func (r *MovieTicketRepository) ModifySeat(email string, showtime string, newSeat string) error {
-	return config.DB.Model(&models.Ticket{}).Where("email = ? AND showtime = ?", email, showtime).
-		Update("seat_number", newSeat).Error
+func (r *MovieTicketRepository) ModifySeat(email, showtime, newSeat string) error {
+	if config.DBAvailable {
+		err := config.DB.Model(&models.Ticket{}).
+			Where("email = ? AND showtime = ?", email, showtime).
+			Update("seat_number", newSeat).Error
+		if err == nil {
+			return nil
+		}
+		config.DBAvailable = false
+		log.Println("⚠️  Database error, switching to in-memory mode")
+	}
+
+	// In-memory fallback
+	ticketsMutex.Lock()
+	defer ticketsMutex.Unlock()
+
+	key := email + showtime
+	if ticket, exists := tickets[key]; exists {
+		ticket.SeatNumber = newSeat
+		tickets[key] = ticket
+		log.Println("✅ Seat modified in-memory")
+		return nil
+	}
+
+	return errors.New("ticket not found")
 }

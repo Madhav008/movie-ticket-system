@@ -11,6 +11,9 @@ import (
 )
 
 func main() {
+
+	gin.SetMode(gin.ReleaseMode) 
+	
 	// Load configuration
 	cfg := config.InitConfig()
 	port := cfg.Server.Port
@@ -37,8 +40,6 @@ func main() {
 
 	// Define a routes group for the API endpoints
 	routes.SetupRoutes(router)
-
-	//TODO: add the request timeout
 
 	// Start the Gin server on port 8080
 	if err := router.Run(":" + port); err != nil {

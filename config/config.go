@@ -6,6 +6,7 @@ import (
 	"log"
 	"movieTicket/models"
 	"os"
+	"sync"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -27,9 +28,13 @@ type Config struct {
 	} `json:"database"`
 }
 
-// DB is the global database connection
-var DB *gorm.DB
-var AppConfig *Config
+// Global variables
+var (
+	DB          *gorm.DB
+	AppConfig   *Config
+	DBAvailable = true // Flag to check DB status
+	mu          sync.Mutex
+)
 
 // LoadConfig reads the config.json file
 func LoadConfig() {
@@ -61,25 +66,27 @@ func InitDB() {
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Println("⚠️  Database connection failed! Switching to in-memory storage...")
+		DBAvailable = false // Set DB status as unavailable
+		return
 	}
 
 	DB = db
+	DBAvailable = true // Set DB status as available
 
 	// Run auto-migrations for all models
-	err = DB.AutoMigrate(&models.Ticket{})
-	err = DB.AutoMigrate(&models.Seat{})
-
+	err = DB.AutoMigrate(&models.Ticket{}, &models.Seat{})
 	if err != nil {
 		log.Fatalf("Migration failed: %v", err)
 	}
-	log.Println("Connected to PostgreSQL successfully!")
+
+	log.Println("✅ Connected to PostgreSQL successfully!")
 }
 
 // InitConfig initializes configuration and database and returns the loaded config
 func InitConfig() *Config {
 	LoadConfig()
 	InitDB()
-	log.Println("Configuration and Database initialized successfully!")
+	log.Println("✅ Configuration and Database initialized successfully!")
 	return AppConfig
 }
